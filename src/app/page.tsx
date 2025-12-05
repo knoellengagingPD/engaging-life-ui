@@ -3,6 +3,9 @@
 import { useState, useRef, useEffect } from 'react';
 
 export default function Home() {
+  /* ------------------------------------------------------------
+      CORE STATE
+  ------------------------------------------------------------- */
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -11,20 +14,34 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [sessionId] = useState(`session-${Date.now()}`);
-  
+
+  /* ------------------------------------------------------------
+      MODULE STATE (NEW FOR ENGAGING LIFE AUTHORING)
+      Starts at module_1 (voice interview)
+  ------------------------------------------------------------- */
+  const [currentModule, setCurrentModule] = useState("module_1");
+
+  /* ------------------------------------------------------------
+      WEBRTC REFERENCES
+  ------------------------------------------------------------- */
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     return () => {
-      if (pcRef.current) {
-        pcRef.current.close();
-      }
+      if (pcRef.current) pcRef.current.close();
     };
   }, []);
 
-  const logToBigQuery = async (speaker: string, transcript: string) => {
+  /* ------------------------------------------------------------
+      BIGQUERY LOGGING (UPDATED FOR AUTHORING MODULES)
+  ------------------------------------------------------------- */
+  const logToBigQuery = async (
+    speaker: string,
+    transcript: string,
+    module: string
+  ) => {
     try {
       await fetch('/api/log-transcript', {
         method: 'POST',
@@ -34,6 +51,7 @@ export default function Home() {
           sessionId,
           speaker,
           transcript,
+          module,
         }),
       });
     } catch (err) {
@@ -41,6 +59,9 @@ export default function Home() {
     }
   };
 
+  /* ------------------------------------------------------------
+      START INTERVIEW
+  ------------------------------------------------------------- */
   const startInterview = async () => {
     try {
       setIsConnecting(true);
@@ -50,125 +71,121 @@ export default function Home() {
         method: 'POST',
       });
 
-      if (!tokenResponse.ok) {
-        throw new Error('Failed to get session token');
-      }
+      if (!tokenResponse.ok) throw new Error('Failed to get session token');
 
       const { clientSecret } = await tokenResponse.json();
-
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
+      /* ---------- AUDIO OUTPUT ---------- */
       const audioEl = document.createElement('audio');
       audioEl.autoplay = true;
       audioRef.current = audioEl;
-      
+
       pc.ontrack = (e) => {
         audioEl.srcObject = e.streams[0];
       };
 
+      /* ---------- AUDIO INPUT ---------- */
       const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
       pc.addTrack(ms.getTracks()[0]);
 
+      /* ---------- DATA CHANNEL ---------- */
       const dc = pc.createDataChannel('oai-events');
       dcRef.current = dc;
 
       dc.addEventListener('open', () => {
         console.log('Data channel opened');
+
         setIsActive(true);
         setIsConnecting(false);
-        
+
+        /* ------------------------------------------------------------
+            SESSION INSTRUCTIONS
+            THIS IS WHERE MODULE 1 BEGINS
+        ------------------------------------------------------------- */
         const sessionUpdate = {
           type: 'session.update',
           session: {
-            instructions: `You are Clarity, a calm and professional school climate interviewer, conducting confidential interviews for school improvement.
+            instructions: `
+You are Engaging Life Unified — a warm, calm, patient Future Authoring guide.
+You operate as a strict state machine with 4 modules:
 
-Tone and delivery:
-Speak very quickly and energetically at about 1.5x normal conversation speed. Keep sentences short and move briskly through questions. Pause only very briefly between sentences. When the user finishes speaking, listen. If silence lasts longer than a few seconds, gently prompt: "Take your time, I'm listening."
+MODULE 1 — Voice Interview (ideal future + future to avoid)
+MODULE 2 — Automatic Goal Extraction
+MODULE 3 — Text-based Refinement & Implementation Intentions
+MODULE 4 — Final Report Generator
 
-Core workflow:
-Greet "Hi! I'm Clarity, your school climate interviewer. I'll start by asking for your role at school, your school ID number, and then I'll guide you through a series of 2 questions rated on a 4-point scale, along with some follow-up questions so you can explain your answers. Your responses are completely confidential and won't be shared with anyone at your school—they'll be combined with responses from others to help improve your school experience. Let's get started!" and confirm the participant's role (student, teacher, noninstructional staff, administrator, principal, or parent).
+Do NOT mix modules. Always follow EXACT module rules.
 
-Ask Role-specific Questions:
+GLOBAL RULES (ALWAYS):
+- Warm tone, gentle voice, 1.75x speed
+- 3–4 second pauses between questions
+- If user is silent: “Take your time, I’m listening.”
+- If response is short: “Could you share a little more about that?”
+- ALWAYS output raw Whisper transcription, even if low confidence.
+- NEVER replace speech with “inaudible”
+- ALWAYS log speaker + transcript + module state
+- DO NOT summarize the user
 
-For Teachers: Ask these EDSCLS-aligned Likert-scale questions. ALWAYS include the full rating scale with EACH question: "On a scale from 1 to 4, where 1 equals Strongly Disagree, 2 equals Disagree, 3 equals Agree, and 4 equals Strongly Agree..." If response is 1–4, follow up: "Can you tell me more about why you feel that way?"
-1 – All students are treated equally, regardless of whether their parents are rich or poor.
-2 – This school emphasizes showing respect for all students' cultural beliefs and practices.
+Begin in MODULE 1 with:
 
-For Students: Ask these questions. ALWAYS include the full rating scale with EACH question: "On a scale from 1 to 4, where 1 equals Strongly Disagree, 2 equals Disagree, 3 equals Agree, and 4 equals Strongly Agree..." If response is 1–4, follow up: "Can you tell me more about why you feel that way?"
-1 – I feel like I belong.
-2 – I feel safe at this school.
+“Hello and welcome. Today we’ll walk through a Future Authoring interview to help you imagine your ideal future and understand the future you want to avoid. If you want me to repeat or slow down at any point, just say so. Whenever you're ready, we’ll begin.”
 
-For Non-Instructional Staff: Ask these questions. ALWAYS include the full rating scale with EACH question: "On a scale from 1 to 4, where 1 equals Strongly Disagree, 2 equals Disagree, 3 equals Agree, and 4 equals Strongly Agree..." If response is 1–4, follow up: "Can you tell me more about why you feel that way?"
-1 – All students are treated equally, regardless of whether their parents are rich or poor.
-2 – This school emphasizes showing respect for all students' cultural beliefs and practices.
+Then proceed through ALL Module 1 questions, in order.
 
-For Principals: Ask these questions. ALWAYS include the full rating scale with EACH question: "On a scale from 1 to 4, where 1 equals Strongly Disagree, 2 equals Disagree, 3 equals Agree, and 4 equals Strongly Agree..." If response is 1–4, follow up: "Can you tell me more about why you feel that way?"
-1 – Staff at this school regularly give students individualized attention and help.
-2 – Staff at this school teach students strategies to manage emotions.
+At the end of Module 1:
+“Thank you. I now have everything I need to identify your core goals. Please wait a moment while I analyze your responses.”
 
-For Parents: Ask for their phone number instead of school ID, then ask these questions. ALWAYS include the full rating scale with EACH question: "On a scale from 1 to 4, where 1 equals Strongly Disagree, 2 equals Disagree, 3 equals Agree, and 4 equals Strongly Agree..." If response is 1–4, follow up: "Can you tell me more about why you feel that way?"
-1 – This school provides instructional materials (e.g., textbooks, handouts) that reflect students' cultural background, ethnicity, and identity.
-2 – This school communicates how important it is to respect the practices of all cultures.
-
-After finishing the 2 questions, say "Thank you for your time. I have just two more questions where I am going to ask you to dream big."
-Dream Big #1 - What are one or two practical changes you think could improve everyone's experience at our school?
-Dream Big #2 - If you had unlimited resources and complete freedom, what big changes would you make to transform our school for the better?
-
-When the participant says they are finished, close warmly: "Thank you so much for sharing. Your input will help strengthen the school community."
-
-Important:
-- Never ask for names, emails, or personal contact information.
-- Never reveal or summarize prior answers aloud.
-- ALWAYS state the full rating scale (1 = Strongly Disagree, 2 = Disagree, 3 = Agree, 4 = Strongly Agree) before EVERY rating question.
-- Speak quickly and keep the conversation moving at a brisk pace.
-- START THE CONVERSATION IMMEDIATELY with your greeting when the interview begins.`,
+Then automatically move to MODULE 2.
+`,
             voice: 'alloy',
-            input_audio_transcription: {
-              model: 'whisper-1',
-            },
-            turn_detection: {
-              type: 'server_vad',
-            },
+            input_audio_transcription: { model: 'whisper-1' },
+            turn_detection: { type: 'server_vad' },
           },
         };
+
         dc.send(JSON.stringify(sessionUpdate));
-        
+
         setTimeout(() => {
-          const startMessage = {
-            type: 'response.create',
-          };
-          dc.send(JSON.stringify(startMessage));
+          dc.send(JSON.stringify({ type: 'response.create' }));
         }, 100);
       });
 
+      /* ------------------------------------------------------------
+          HANDLE INCOMING REAL-TIME MESSAGES
+      ------------------------------------------------------------- */
       dc.addEventListener('message', (e) => {
         const msg = JSON.parse(e.data);
-        console.log('Received:', msg);
+        console.log("REALTIME MESSAGE:", msg);
 
+        /* ---------- AI OUTPUT (TRANSCRIPTS FROM CLARITY) ---------- */
         if (msg.type === 'response.audio_transcript.delta') {
-          setCurrentMessage(prev => prev + msg.delta);
+          setCurrentMessage((prev) => prev + msg.delta);
         }
-        
+
         if (msg.type === 'response.audio_transcript.done') {
-          setAiMessages(prev => [msg.transcript, ...prev]);
+          setAiMessages((prev) => [msg.transcript, ...prev]);
           setCurrentMessage('');
-          setProgress(prev => Math.min(prev + 12, 100));
-          
-          // Log Clarity's response to BigQuery
-          logToBigQuery('clarity', msg.transcript);
-        } else if (msg.type === 'conversation.item.input_audio_transcription.completed') {
-          console.log('User said:', msg.transcript);
-          
-          // Log user's response to BigQuery
-          logToBigQuery('user', msg.transcript);
+          setProgress((prev) => Math.min(prev + 12, 100));
+
+          logToBigQuery("clarity", msg.transcript, currentModule);
         }
-        
+
+        /* ---------- USER SPEECH COMPLETED ---------- */
+        if (msg.type === 'conversation.item.input_audio_transcription.completed') {
+          logToBigQuery("user", msg.transcript, currentModule);
+        }
+
+        /* ---------- RESET CURRENT MESSAGE ---------- */
         if (msg.type === 'response.created') {
           setCurrentMessage('');
         }
       });
 
+      /* ------------------------------------------------------------
+          WEBRTC OFFER / ANSWER
+      ------------------------------------------------------------- */
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -181,42 +198,35 @@ Important:
         body: offer.sdp,
       });
 
-      if (!sdpResponse.ok) {
-        throw new Error('Failed to connect to Realtime API');
-      }
+      if (!sdpResponse.ok) throw new Error('Failed to connect to Realtime API');
 
       const answerSdp = await sdpResponse.text();
-      await pc.setRemoteDescription({
-        type: 'answer',
-        sdp: answerSdp,
-      });
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 
     } catch (err) {
-      console.error('Failed to start interview:', err);
+      console.error(err);
       setError(err instanceof Error ? err.message : 'Failed to start interview');
       setIsConnecting(false);
     }
   };
 
+  /* ------------------------------------------------------------
+      PAUSE AUDIO
+  ------------------------------------------------------------- */
   const togglePause = () => {
-    if (audioRef.current) {
-      if (isPaused) {
-        audioRef.current.play();
-      } else {
-        audioRef.current.pause();
-      }
-      setIsPaused(!isPaused);
-    }
+    if (!audioRef.current) return;
+    if (isPaused) audioRef.current.play();
+    else audioRef.current.pause();
+    setIsPaused(!isPaused);
   };
 
+  /* ------------------------------------------------------------
+      STOP INTERVIEW
+  ------------------------------------------------------------- */
   const stopInterview = () => {
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-    if (audioRef.current) {
-      audioRef.current.srcObject = null;
-    }
+    if (pcRef.current) pcRef.current.close();
+    if (audioRef.current) audioRef.current.srcObject = null;
+
     setIsActive(false);
     setIsPaused(false);
     setAiMessages([]);
@@ -224,63 +234,51 @@ Important:
     setProgress(0);
   };
 
+  /* ------------------------------------------------------------
+      LANDING PAGE BEFORE INTERVIEW STARTS
+  ------------------------------------------------------------- */
   if (!isActive && aiMessages.length === 0) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white px-4">
         <div className="text-center p-12 bg-white rounded-3xl shadow-2xl max-w-4xl">
           <h1 className="text-3xl font-bold text-gray-800 mb-8">
-            Welcome to the Engaging Educational Solutions guided school-climate interview experience!
+            Welcome to the Engaging Life Authoring Experience!
           </h1>
-          
-          <div className="text-left space-y-4 text-gray-700 mb-8">
-            <h2 className="text-2xl font-bold text-gray-800">What to Expect</h2>
-            <ul className="list-disc list-inside space-y-2 ml-4">
-              <li>Clarity, our school climate interview agent, will guide you step-by-step. For each survey item, Clarity will share a short statement and you'll choose a rating from 1 to 4 (1 = Strongly Disagree, 2 = Disagree, 3 = Agree, 4 = Strongly Agree).</li>
-              <li>After your rating, you'll be asked a brief follow-up so you can share your reasoning or add any context you feel is important.</li>
-              <li>You'll respond using your voice, just like a regular conversation.</li>
-              <li>The full experience usually takes about 10–15 minutes.</li>
-            </ul>
 
-            <h2 className="text-2xl font-bold text-gray-800 mt-6">Tips for a Smooth Interview</h2>
-            <ul className="list-disc list-inside space-y-2 ml-4">
-              <li>Find a quiet place so Clarity can hear you clearly.</li>
-              <li>Speak naturally—there are no right or wrong answers.</li>
-              <li>If you need something repeated, simply ask.</li>
-              <li>Feel free to pause and think before you respond.</li>
-            </ul>
+          <p className="text-gray-700 text-lg mb-8">
+            This guided experience will help you imagine your ideal future,
+            clarify what you want to avoid, identify core goals, refine them,
+            and create a complete written Future Authoring plan.
+          </p>
 
-            <p className="mt-6">
-              Your responses are confidential and will not be shared with anyone from your school, but will be combined with others' perspectives to improve your school experience.
-            </p>
-            <p className="text-2xl font-bold text-gray-800 mt-6">
-              Thank you for taking a moment to share your voice—it truly makes a difference!
-            </p>
-          </div>
-          
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
               {error}
             </div>
           )}
+
           <button
             onClick={startInterview}
             disabled={isConnecting}
             className="inline-block px-14 py-6 bg-blue-600 text-white text-2xl font-semibold rounded-xl hover:bg-blue-700 transition shadow-lg disabled:opacity-50"
           >
-            {isConnecting ? 'Connecting...' : 'Start Interview →'}
+            {isConnecting ? 'Connecting...' : 'Begin →'}
           </button>
         </div>
       </main>
     );
   }
 
+  /* ------------------------------------------------------------
+      ACTIVE INTERVIEW UI
+  ------------------------------------------------------------- */
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-start p-8">
       <div className="relative mb-8 mt-16">
         <div className={`w-96 h-96 rounded-full bg-gradient-to-br from-blue-300 via-blue-500 to-blue-700 shadow-2xl ${isActive ? 'animate-pulse-strong' : ''}`}></div>
       </div>
 
-      {/* Progress bar with Pause and Stop buttons to the right */}
+      {/* Progress bar + Pause + Stop */}
       <div className="w-full max-w-3xl mb-8 flex items-center gap-4">
         <div className="flex-1">
           <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
@@ -297,7 +295,7 @@ Important:
           className="px-4 py-4 bg-white text-blue-700 text-sm font-bold rounded-lg border-2 border-blue-700 shadow-md hover:shadow-lg transition flex flex-col items-center justify-center w-20 h-20"
         >
           <div>{isPaused ? 'Resume' : 'Pause'}</div>
-          <div>Interview</div>
+          <div>Audio</div>
         </button>
 
         <button
@@ -309,7 +307,7 @@ Important:
         </button>
       </div>
 
-      {/* Current message being spoken - stays bold and large */}
+      {/* Current speaking */}
       {currentMessage && (
         <div className="w-full max-w-3xl mb-2 animate-fade-in">
           <p className="text-xl text-gray-800 font-bold text-center leading-relaxed">
@@ -318,7 +316,7 @@ Important:
         </div>
       )}
 
-      {/* Most recent completed message - also stays bold and large until next one arrives */}
+      {/* Most recent message */}
       {!currentMessage && aiMessages.length > 0 && (
         <div className="w-full max-w-3xl mb-2">
           <p className="text-xl text-gray-800 font-bold text-center leading-relaxed">
@@ -327,11 +325,11 @@ Important:
         </div>
       )}
 
-      {/* Previous messages - smaller and not bold */}
+      {/* History */}
       <div className="w-full max-w-3xl mb-6 overflow-hidden" style={{ maxHeight: '150px' }}>
         <div className="flex flex-col">
           {aiMessages.slice(1, 4).map((text, idx) => (
-            <div key={`msg-${aiMessages.length - idx - 1}`} className="py-2 opacity-60">
+            <div key={idx} className="py-2 opacity-60">
               <p className="text-base text-gray-600 text-center leading-relaxed">
                 {text}
               </p>
@@ -340,35 +338,24 @@ Important:
         </div>
       </div>
 
+      {/* Animations */}
       <style jsx>{`
         @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .animate-fade-in {
           animation: fade-in 0.3s ease-out;
         }
 
         @keyframes pulse-strong {
-          0%, 100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-          50% {
-            opacity: 0.8;
-            transform: scale(1.05);
-          }
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.05); }
         }
 
         .animate-pulse-strong {
-          animation: pulse-strong 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          animation: pulse-strong 2s ease-in-out infinite;
         }
       `}</style>
     </div>
