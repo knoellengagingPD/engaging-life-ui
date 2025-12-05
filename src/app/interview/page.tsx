@@ -5,10 +5,40 @@ import { useState } from 'react';
 export default function InterviewPage() {
   const [isActive, setIsActive] = useState(false);
   const [transcript, setTranscript] = useState<string[]>([]);
+  const [sessionSecret, setSessionSecret] = useState<string | null>(null);
 
-  // -----------------------------
-  // TEST LOGGING FUNCTION
-  // -----------------------------
+  // -------------------------------------------
+  // 1. CREATE REALTIME SESSION WITH YOUR API
+  // -------------------------------------------
+  async function startRealtimeSession() {
+    try {
+      const res = await fetch("/api/realtime-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to get session token");
+      }
+
+      const data = await res.json();
+      console.log("Realtime clientSecret:", data.clientSecret);
+
+      setSessionSecret(data.clientSecret);
+
+      // TODO: Here we will add the WebRTC / WebSocket initialization
+      // For now we just confirm the connection is working.
+      alert("✔ Realtime session started!\nCheck console for secret.");
+
+    } catch (err) {
+      console.error("Realtime session error:", err);
+      alert("❌ Failed to get session token.");
+    }
+  }
+
+  // -------------------------------------------
+  // 2. TEST BIGQUERY LOGGING
+  // -------------------------------------------
   async function sendTestLog() {
     try {
       const res = await fetch("/api/log-transcript", {
@@ -25,7 +55,6 @@ export default function InterviewPage() {
 
       const data = await res.json();
       console.log("Logging result:", data);
-
       alert("✔ Test log sent — check BigQuery!");
     } catch (err) {
       console.error("Error sending test log:", err);
@@ -33,12 +62,16 @@ export default function InterviewPage() {
     }
   }
 
-  // -----------------------------
-  // INTERVIEW SIMULATION
-  // -----------------------------
-  const startInterview = () => {
+  // -------------------------------------------
+  // 3. SIMULATION OF INTERVIEW UI
+  // -------------------------------------------
+  const startInterview = async () => {
     setIsActive(true);
 
+    // FIRST: Start OpenAI realtime session
+    await startRealtimeSession();
+
+    // THEN: Run your simulated transcript UI
     setTimeout(() => {
       setTranscript([
         "Great! Could you please tell me your role at the school? Are you a student, teacher, non-instructional staff, or administrator?"
@@ -49,15 +82,14 @@ export default function InterviewPage() {
   const stopInterview = () => {
     setIsActive(false);
     setTranscript([]);
+    setSessionSecret(null);
   };
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-start p-8">
 
-      {/* Buttons Row */}
+      {/* Buttons */}
       <div className="flex gap-8 mb-16 mt-8">
-
-        {/* Start */}
         <button
           onClick={startInterview}
           disabled={isActive}
@@ -66,7 +98,6 @@ export default function InterviewPage() {
           Start Interview
         </button>
 
-        {/* Stop */}
         <button
           onClick={stopInterview}
           disabled={!isActive}
@@ -75,7 +106,6 @@ export default function InterviewPage() {
           Stop Interview
         </button>
 
-        {/* SEND TEST LOG BUTTON */}
         <button
           onClick={sendTestLog}
           className="px-16 py-6 bg-green-500 text-white text-2xl font-semibold rounded-full shadow-lg hover:bg-green-600 transition"
@@ -84,7 +114,7 @@ export default function InterviewPage() {
         </button>
       </div>
 
-      {/* Pulsing Orb */}
+      {/* Orb */}
       <div className="relative mb-16">
         <div
           className={`w-96 h-96 rounded-full bg-gradient-to-br from-blue-200 via-blue-300 to-blue-500 ${
@@ -105,12 +135,10 @@ export default function InterviewPage() {
             </div>
           ))}
 
-          {/* Simulated response */}
           <div className="text-xl text-gray-600 text-center italic mt-8">
             I am a student,
           </div>
 
-          {/* Progress Bar */}
           <div className="mt-12 mb-8">
             <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
               <div
@@ -120,7 +148,6 @@ export default function InterviewPage() {
             </div>
           </div>
 
-          {/* Follow-up Question */}
           <div className="animate-fade-in-up-delayed">
             <p className="text-xl text-gray-700 text-center leading-relaxed">
               Thanks! And could you please provide your school ID number for verification?
@@ -132,20 +159,12 @@ export default function InterviewPage() {
       {/* Animations */}
       <style jsx>{`
         @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
         .animate-fade-in-up {
           animation: fade-in-up 1s ease-out;
         }
-
         .animate-fade-in-up-delayed {
           animation: fade-in-up 1s ease-out 1.5s both;
         }
