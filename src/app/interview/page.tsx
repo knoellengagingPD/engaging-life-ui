@@ -8,13 +8,13 @@ export default function InterviewPage() {
   const [transcript, setTranscript] = useState<string[]>([]);
   const [sessionSecret, setSessionSecret] = useState<string | null>(null);
 
-  // --- NEW: analysis + save state ---
+  // NEW: analysis + save state
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<any | null>(null);
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
 
-  // Areas for your 4-bucket goal output
+  // Your 4 areas (reusable for other products later)
   const areas = useMemo(
     () => ['Family', 'Friends', 'Meaningful Work', 'Purpose/Faith'] as const,
     []
@@ -30,21 +30,18 @@ export default function InterviewPage() {
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!res.ok) {
-        throw new Error('Failed to get session token');
-      }
+      if (!res.ok) throw new Error('Failed to get session token');
 
       const data = await res.json();
       console.log('Realtime clientSecret:', data.clientSecret);
 
       setSessionSecret(data.clientSecret);
 
-      // TODO: add WebRTC / WebSocket init
+      // TODO: WebRTC / WebSocket initialization
       alert('✔ Realtime session started!\nCheck console for secret.');
     } catch (err) {
       console.error('Realtime session error:', err);
       alert('❌ Failed to get session token.');
-      throw err; // so startInterview can react if needed
     }
   }
 
@@ -75,8 +72,7 @@ export default function InterviewPage() {
   }
 
   // -------------------------------------------
-  // 3. NEW: POST-INTERVIEW PIPELINE
-  //    Analyze -> Save -> Render
+  // NEW: Analyze -> Save to KV pipeline
   // -------------------------------------------
   async function runPostInterviewPipeline(finalTranscript: string) {
     setAnalyzing(true);
@@ -89,36 +85,28 @@ export default function InterviewPage() {
       const aRes = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: finalTranscript,
-          areas,
-        }),
+        body: JSON.stringify({ transcript: finalTranscript, areas }),
       });
 
       const aJson = await aRes.json();
-      if (!aRes.ok) {
-        throw new Error(aJson?.error || 'Analyze failed');
-      }
+      if (!aRes.ok) throw new Error(aJson?.error || 'Analyze failed');
+
       setAnalysis(aJson);
 
-      // 2) Save to KV (via /api/session)
+      // 2) Save to KV
       const sRes = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript: finalTranscript,
           analysis: aJson,
-          meta: {
-            product: 'findmypurpose',
-            interview: 'interview',
-          },
+          meta: { product: 'findmypurpose', interview: 'interview' },
         }),
       });
 
       const sJson = await sRes.json();
-      if (!sRes.ok) {
-        throw new Error(sJson?.error || 'Save failed');
-      }
+      if (!sRes.ok) throw new Error(sJson?.error || 'Save failed');
+
       setSavedSessionId(sJson.id);
     } catch (e: any) {
       console.error(e);
@@ -129,14 +117,14 @@ export default function InterviewPage() {
   }
 
   // -------------------------------------------
-  // 4. SIMULATION OF INTERVIEW UI (updated)
+  // 3. SIMULATION OF INTERVIEW UI (updated)
   // -------------------------------------------
   const startInterview = async () => {
     setIsActive(true);
 
-    // Clear prior results when starting fresh
-    setAnalysis(null);
+    // Clear old results when starting fresh
     setAnalyzeError(null);
+    setAnalysis(null);
     setSavedSessionId(null);
 
     // FIRST: Start OpenAI realtime session
@@ -151,21 +139,21 @@ export default function InterviewPage() {
   };
 
   const stopInterview = async () => {
-    // Capture transcript BEFORE clearing UI state
+    // capture transcript BEFORE clearing it
     const finalTranscript = transcript.join('\n');
 
-    // Stop the session UI immediately
+    // stop UI immediately
     setIsActive(false);
-    setSessionSecret(null);
     setTranscript([]);
+    setSessionSecret(null);
 
-    // If there’s nothing to analyze, don’t call the pipeline
+    // if nothing captured, don’t run analysis
     if (!finalTranscript.trim()) {
       setAnalyzeError('No transcript captured to analyze.');
       return;
     }
 
-    // Run analysis + save after stop
+    // run analysis + save
     await runPostInterviewPipeline(finalTranscript);
   };
 
@@ -207,12 +195,14 @@ export default function InterviewPage() {
         ></div>
       </div>
 
-      {/* Transcript (simulated) */}
+      {/* Transcript */}
       {isActive && transcript.length > 0 && (
         <div className="max-w-3xl w-full space-y-6 mb-10">
           {transcript.map((text, idx) => (
             <div key={idx} className="animate-fade-in-up">
-              <p className="text-xl text-gray-800 text-center leading-relaxed">{text}</p>
+              <p className="text-xl text-gray-800 text-center leading-relaxed">
+                {text}
+              </p>
             </div>
           ))}
 
