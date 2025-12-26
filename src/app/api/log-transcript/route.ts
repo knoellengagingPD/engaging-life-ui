@@ -1,48 +1,24 @@
 import { NextResponse } from "next/server";
 import { kv } from "@vercel/kv";
 
-type TranscriptLog = {
-  timestamp: string;
-  sessionId: string;
-  speaker: string;
-  transcript: string;
-  module?: string;
-  productKey?: string;
-};
-
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as TranscriptLog;
+    const body = await req.json();
 
-    if (!body?.sessionId || !body?.speaker || !body?.transcript) {
-      return NextResponse.json(
-        { ok: false, error: "Missing required fields: sessionId, speaker, transcript" },
-        { status: 400 }
-      );
-    }
+    const id = crypto.randomUUID();
 
-    const event = {
+    await kv.set(`transcript:${id}`, {
       ...body,
-      timestamp: body.timestamp || new Date().toISOString(),
-    };
-
-    // Store as an append-only list of events for that session
-    const listKey = `sessions:${body.sessionId}:transcript`;
-
-    await kv.rpush(listKey, JSON.stringify(event));
-
-    // Optional: update a "last updated" pointer
-    await kv.hset(`sessions:${body.sessionId}:meta`, {
-      sessionId: body.sessionId,
-      updatedAt: event.timestamp,
-      module: body.module || "",
-      productKey: body.productKey || "",
+      createdAt: new Date().toISOString(),
     });
 
-    return NextResponse.json({ ok: true, saved: true });
+    return NextResponse.json({
+      success: true,
+      id,
+    });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message || "Unknown error" },
+      { error: err.message ?? "Failed to save transcript" },
       { status: 500 }
     );
   }
