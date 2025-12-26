@@ -247,7 +247,7 @@ export default function InterviewPage() {
           </div>
         )}
 
-        <GoalResults data={analysis} />
+        <GoalResults analysis={analysis} />
       </div>
 
       {/* Animations */}
