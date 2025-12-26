@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
+import { kv } from "@vercel/kv";
 
 export async function GET() {
+  const id = crypto.randomUUID();
+
+  await kv.set(`test:${id}`, {
+    message: "Test log saved successfully",
+    createdAt: new Date().toISOString(),
+  });
+
   return NextResponse.json({
     ok: true,
-    message:
-      "log-transcript-test is now disabled (BigQuery removed). Use POST /api/log-transcript to write to KV.",
+    id,
   });
 }
