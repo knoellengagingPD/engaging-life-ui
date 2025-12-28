@@ -5,25 +5,25 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const APP_NAME = "Engaging Purpose";
 
-// Your exact question set + conversational transitions built in
+// Your question set + conversational transitions
 const QUESTIONS: string[] = [
   // FAMILY
-  "Let’s start with **family**. Imagine your family life a few years from now if it became stronger and more joyful. What does that look like?",
+  "Let’s start with family. Imagine your family life a few years from now if it became stronger and more joyful. What does that look like?",
   "Thanks — and staying with family for a moment: what kind of spouse, parent, sibling, or son/daughter do you hope to become?",
   "Got it. What moments, habits, or traditions would help your family thrive?",
 
   // FRIENDS & COMMUNITY
-  "Now let’s shift to **friends and community**. Picture your social life at its best. What friendships or community connections do you want to deepen or develop?",
+  "Now let’s shift to friends and community. Picture your social life at its best. What friendships or community connections do you want to deepen or develop?",
   "As you think about those connections: what qualities do you hope your friends value in you?",
   "And looking outward a bit: how would you like to contribute to your community or the people around you?",
 
   // MEANINGFUL WORK
-  "Alright — let’s talk about **meaningful work**. Describe what meaningful work looks like for you—work that uses your strengths and energizes you.",
+  "Alright — let’s talk about meaningful work. Describe what meaningful work looks like for you—work that uses your strengths and energizes you.",
   "If your career grew in the direction you hope for, what would your daily work life be like?",
   "What skills or achievements would make you proud in your work life?",
 
   // FAITH / TRANSCENDENCE
-  "Now I’d like to move into **faith / transcendence** in whatever way fits you. How would you like your relationship with God or your spiritual life to grow in the coming years?",
+  "Now I’d like to move into faith or transcendence in whatever way fits you. How would you like your relationship with God or your spiritual life to grow in the coming years?",
   "What experiences or practices would help you feel more grounded and connected to something greater than yourself?",
   "If your spiritual health was flourishing, how would that show up in your daily life?",
 
@@ -36,14 +36,13 @@ const QUESTIONS: string[] = [
 
 type ConnState = "idle" | "connecting" | "connected" | "error";
 
+type Line = { role: "assistant" | "user"; text: string };
+
 export default function InterviewPage() {
   const [connState, setConnState] = useState<ConnState>("idle");
   const [isPaused, setIsPaused] = useState(false);
-
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-
-  // Simple transcript UI
-  const [lines, setLines] = useState<{ role: "assistant" | "user"; text: string }[]>([]);
+  const [lines, setLines] = useState<Line[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
   // WebRTC refs
@@ -51,8 +50,10 @@ export default function InterviewPage() {
   const dcRef = useRef<RTCDataChannel | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
-  // Audio output
+  // Audio output element
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const isActive = connState === "connecting" || connState === "connected";
 
   const progressLabel = useMemo(() => {
     const total = QUESTIONS.length;
@@ -65,8 +66,13 @@ export default function InterviewPage() {
     return total === 0 ? 0 : Math.round(((activeQuestionIndex + 1) / total) * 100);
   }, [activeQuestionIndex]);
 
-  function addLine(role: "assistant" | "user", text: string) {
+  function addLine(role: Line["role"], text: string) {
     setLines((prev) => [...prev, { role, text }]);
+  }
+
+  function showFatal(msg: string) {
+    setConnState("error");
+    setLastError(msg);
   }
 
   async function getEphemeralClientSecret(): Promise<string> {
@@ -77,7 +83,7 @@ export default function InterviewPage() {
 
     if (!res.ok) {
       const t = await res.text();
-      throw new Error(`Failed to create realtime session: ${res.status} ${t}`);
+      throw new Error(`Failed to get client secret: ${res.status} ${t}`);
     }
 
     const data = await res.json();
@@ -85,23 +91,19 @@ export default function InterviewPage() {
     return data.clientSecret as string;
   }
 
-  // Send a client event over the Realtime data channel
   function sendEvent(evt: any) {
     const dc = dcRef.current;
     if (!dc || dc.readyState !== "open") return;
     dc.send(JSON.stringify(evt));
   }
 
-  // Ask the next question via the model (audio + transcript)
   function askQuestion(index: number) {
     const q = QUESTIONS[index];
     if (!q) return;
 
-    // We add to UI immediately as “assistant” so the page feels alive.
     addLine("assistant", q);
 
-    // Tell the model to say it out loud.
-    // (This is the Realtime “response.create” pattern.)
+    // Ask the model to say it (audio + text)
     sendEvent({
       type: "response.create",
       response: {
@@ -111,11 +113,6 @@ export default function InterviewPage() {
     });
   }
 
-  const showFatal = (msg: string) => {
-    setConnState("error");
-    setLastError(msg);
-  };
-
   async function start() {
     setLastError(null);
     setConnState("connecting");
@@ -124,10 +121,9 @@ export default function InterviewPage() {
     setActiveQuestionIndex(0);
 
     try {
-      // 1) Create ephemeral client secret (server-side call to OpenAI)
       const clientSecret = await getEphemeralClientSecret();
 
-      // 2) Create peer connection + data channel
+      // 1) Create peer connection + data channel
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
@@ -135,61 +131,37 @@ export default function InterviewPage() {
       dcRef.current = dc;
 
       dc.onopen = () => {
-        // Set high-level behavior for the session
+        // (Optional) reinforce session behavior; client_secret already sets defaults
         sendEvent({
           type: "session.update",
           session: {
-            type: "realtime",
             instructions:
               `You are ${APP_NAME}, a warm, concise voice interviewer. ` +
               `Ask one question at a time. After the user answers, briefly acknowledge, then move to the next question. ` +
               `If the user says “I don’t know” or gives a very short answer, ask one gentle follow-up for detail. ` +
-              `Do NOT ask for school ID numbers or workplace/job satisfaction items. Stay strictly on Engaging Purpose questions. ` +
-              `Keep it conversational.`,
-            audio: { output: { voice: "marin" } },
+              `Stay strictly on Engaging Purpose questions. Keep it conversational.`,
           },
         });
 
-        // Kick off Q1
-        askQuestion(0);
         setConnState("connected");
+        askQuestion(0);
       };
 
       dc.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
 
-          // Helpful for debugging:
+          // You can console.log(msg) if you want to see server events
           // console.log("Realtime event:", msg);
 
-          // Capture transcripts (these event names changed in GA; docs mention the new naming). :contentReference[oaicite:3]{index=3}
-          if (msg?.type === "response.output_text.delta" && msg?.delta) {
-            // Optional: if you want streaming text in UI later
-          }
-
-          if (msg?.type === "response.output_audio_transcript.delta" && msg?.delta) {
-            // This is the model’s spoken transcript
-            // Append as we receive it
-            setLines((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === "assistant") {
-                // merge into last assistant line
-                const merged = { ...last, text: (last.text ?? "") + msg.delta };
-                return [...prev.slice(0, -1), merged];
-              }
-              return [...prev, { role: "assistant", text: msg.delta }];
-            });
-          }
-
-          // If you want to detect end of model turn, you can watch "response.completed" or similar
-          // depending on model. Leaving lightweight for now.
+          // If the API sends transcript deltas, you can stitch them here.
+          // We'll keep the UI simple for now.
         } catch {
-          // ignore non-JSON
+          // ignore
         }
       };
 
       pc.ontrack = (event) => {
-        // Remote audio from the model
         const [stream] = event.streams;
         if (audioRef.current) {
           audioRef.current.srcObject = stream;
@@ -197,16 +169,16 @@ export default function InterviewPage() {
         }
       };
 
-      // 3) Get mic audio and attach to peer connection
+      // 2) Mic → peer connection
       const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
       micStreamRef.current = mic;
       mic.getTracks().forEach((track) => pc.addTrack(track, mic));
 
-      // 4) Create SDP offer, then POST it to OpenAI Realtime calls endpoint
+      // 3) SDP offer → OpenAI Realtime → SDP answer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Docs show the GA WebRTC SDP exchange is POST /v1/realtime/calls with Content-Type: application/sdp :contentReference[oaicite:4]{index=4}
+      // Official WebRTC guide uses POST /v1/realtime/calls with SDP offer and application/sdp :contentReference[oaicite:3]{index=3}
       const sdpResp = await fetch("https://api.openai.com/v1/realtime/calls", {
         method: "POST",
         headers: {
@@ -218,14 +190,13 @@ export default function InterviewPage() {
 
       if (!sdpResp.ok) {
         const t = await sdpResp.text();
-        throw new Error(`Realtime SDP exchange failed: ${sdpResp.status} ${t}`);
+        throw new Error(`Realtime SDP exchange failed: ${sdpResp.status}\n${t}`);
       }
 
       const answerSdp = await sdpResp.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (err: any) {
-      setConnState("error");
-      setLastError(String(err?.message ?? err));
+      showFatal(String(err?.message ?? err));
     }
   }
 
@@ -261,14 +232,12 @@ export default function InterviewPage() {
     setIsPaused(next);
 
     mic.getAudioTracks().forEach((t) => {
-      t.enabled = !next; // disable mic when paused
+      t.enabled = !next;
     });
 
     addLine("assistant", next ? "Pausing — take your time." : "Okay — I’m listening again.");
   }
 
-  // For now, “Next” is manual (so you can verify it’s behaving).
-  // After you’re happy, we can auto-advance when user finishes speaking.
   function nextQuestion() {
     const nextIdx = Math.min(activeQuestionIndex + 1, QUESTIONS.length - 1);
     setActiveQuestionIndex(nextIdx);
@@ -280,23 +249,20 @@ export default function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isActive = connState === "connecting" || connState === "connected";
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-700 to-blue-500 p-6 flex items-center justify-center">
       <audio ref={audioRef} autoPlay />
 
       <div className="w-full max-w-5xl">
-        {/* Main Card */}
         <div className="bg-white rounded-3xl shadow-2xl p-10">
           <h1 className="text-4xl font-extrabold text-center text-blue-700">
             Welcome to {APP_NAME}
           </h1>
 
           <p className="text-center text-gray-600 mt-4 max-w-3xl mx-auto">
-            When you start, {APP_NAME} will guide you through a purpose interview across
-            family, friends & community, meaningful work, and faith/transcendence — plus a quick
-            “what to avoid” scan. Your responses can be kept private and used to summarize themes and goals.
+            When you start, {APP_NAME} will guide you through a purpose interview across family,
+            friends &amp; community, meaningful work, and faith/transcendence — plus a quick
+            “what to avoid” scan.
           </p>
 
           {/* Orb */}
@@ -318,7 +284,10 @@ export default function InterviewPage() {
             <div className="text-sm font-semibold text-blue-700">{progressLabel}</div>
           </div>
           <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-700 transition-all duration-500" style={{ width: `${progressPct}%` }} />
+            <div
+              className="h-full bg-blue-700 transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
           </div>
 
           {/* Controls */}
@@ -364,7 +333,7 @@ export default function InterviewPage() {
           )}
         </div>
 
-        {/* Transcript Panel */}
+        {/* Transcript panel */}
         <div className="bg-white/90 rounded-3xl shadow-2xl mt-6 p-6">
           <div className="text-blue-800 font-bold mb-3">Interview Transcript</div>
 
